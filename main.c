@@ -1,0 +1,295 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define PARKING_SIZE 3   // 停车场容量（栈容量）
+#define MAX_LICENSE 10   // 车牌号最大长度
+
+// 车辆结构体
+typedef struct Car {
+    char license[MAX_LICENSE];  // 车牌号
+} Car;
+
+// 栈（停车场）
+typedef struct {
+    Car* data[PARKING_SIZE];    // 栈数组，存放Car指针
+    int top;                    // 栈顶指针（-1表示空）
+} ParkingStack;
+
+// 队列节点（链式队列）
+typedef struct QueueNode {
+    Car* car;                   // 车辆指针
+    struct QueueNode* next;     // 下一个节点
+} QueueNode;
+
+// 队列（便道）
+typedef struct {
+    QueueNode* front;           // 队头指针
+    QueueNode* rear;            // 队尾指针
+} WaitingQueue;
+
+// ========== 栈操作函数 ==========
+// 初始化栈
+void initParking(ParkingStack* s) {
+    s->top = -1;
+}
+
+// 判断栈是否为空
+int isParkingEmpty(ParkingStack* s) {
+    return s->top == -1;
+}
+
+// 判断栈是否已满
+int isParkingFull(ParkingStack* s) {
+    return s->top == PARKING_SIZE - 1;
+}
+
+// 入栈（车辆停入停车场）
+int pushParking(ParkingStack* s, Car* car) {
+    if (isParkingFull(s)) {
+        return 0;  // 栈满，入栈失败
+    }
+    s->top++;
+    s->data[s->top] = car;
+    return 1;
+}
+
+// 出栈（车辆离开停车场）
+Car* popParking(ParkingStack* s) {
+    if (isParkingEmpty(s)) {
+        return NULL;
+    }
+    Car* car = s->data[s->top];
+    s->top--;
+    return car;
+}
+
+// 获取栈顶元素（不移除）
+Car* getTopParking(ParkingStack* s) {
+    if (isParkingEmpty(s)) {
+        return NULL;
+    }
+    return s->data[s->top];
+}
+
+// 在停车场中按车牌号查找车辆，返回下标（-1表示未找到）
+int findCarInParking(ParkingStack* s, char* license) {
+    for (int i = 0; i <= s->top; i++) {
+        if (strcmp(s->data[i]->license, license) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// ========== 队列操作函数 ==========
+// 初始化队列
+void initWaiting(WaitingQueue* q) {
+    q->front = q->rear = NULL;
+}
+
+// 判断队列是否为空
+int isWaitingEmpty(WaitingQueue* q) {
+    return q->front == NULL;
+}
+
+// 入队（车辆在便道排队）
+void enqueueWaiting(WaitingQueue* q, Car* car) {
+    QueueNode* newNode = (QueueNode*)malloc(sizeof(QueueNode));
+    newNode->car = car;
+    newNode->next = NULL;
+    
+    if (isWaitingEmpty(q)) {
+        q->front = q->rear = newNode;
+    } else {
+        q->rear->next = newNode;
+        q->rear = newNode;
+    }
+}
+
+// 出队（便道车辆进入停车场）
+Car* dequeueWaiting(WaitingQueue* q) {
+    if (isWaitingEmpty(q)) {
+        return NULL;
+    }
+    QueueNode* temp = q->front;
+    Car* car = temp->car;
+    q->front = q->front->next;
+    if (q->front == NULL) {
+        q->rear = NULL;
+    }
+    free(temp);
+    return car;
+}
+
+// 在便道中查找车辆（按车牌号）
+int findCarInWaiting(WaitingQueue* q, char* license) {
+    QueueNode* p = q->front;
+    while (p != NULL) {
+        if (strcmp(p->car->license, license) == 0) {
+            return 1;  // 找到了
+        }
+        p = p->next;
+    }
+    return 0;  // 未找到
+}
+
+// ========== 核心功能函数 ==========
+// 车辆到达
+void arrive(ParkingStack* parking, WaitingQueue* waiting) {
+    char license[MAX_LICENSE];
+    printf("请输入车牌号：");
+    scanf("%s", license);
+    
+    // 检查是否已在停车场或便道中
+    if (findCarInParking(parking, license) != -1) {
+        printf("车辆 %s 已在停车场中！\n", license);
+        return;
+    }
+    if (findCarInWaiting(waiting, license)) {
+        printf("车辆 %s 已在便道排队中！\n", license);
+        return;
+    }
+    
+    // 创建车辆节点
+    Car* newCar = (Car*)malloc(sizeof(Car));
+    strcpy(newCar->license, license);
+    
+    // 判断停车场是否已满
+    if (!isParkingFull(parking)) {
+        // 停车场未满，直接停入
+        pushParking(parking, newCar);
+        printf("车辆 %s 已停入停车场（车位 %d）\n", license, parking->top + 1);
+    } else {
+        // 停车场已满，进入便道排队
+        enqueueWaiting(waiting, newCar);
+        printf("停车场已满，车辆 %s 已在便道排队\n", license);
+    }
+}
+
+// 车辆离开
+void leave(ParkingStack* parking, WaitingQueue* waiting) {
+    char license[MAX_LICENSE];
+    printf("请输入要离开的车牌号：");
+    scanf("%s", license);
+    
+    // 查找车辆在停车场中的位置
+    int index = findCarInParking(parking, license);
+    if (index == -1) {
+        printf("未找到车辆 %s\n", license);
+        return;
+    }
+    
+    // 临时栈（用数组模拟，存放需要暂存的车辆指针）
+    Car* tempStack[PARKING_SIZE];
+    int tempTop = -1;
+    
+    // 步骤1：将目标车辆后面的车辆（栈顶到目标上方）暂存到临时栈
+    while (parking->top > index) {
+        tempTop++;
+        tempStack[tempTop] = popParking(parking);
+    }
+    
+    // 步骤2：弹出目标车辆（要离开的车）
+    Car* target = popParking(parking);
+    printf("车辆 %s 已离开停车场\n", target->license);
+    free(target);  // 释放内存
+    
+    // 步骤3：将临时栈中的车辆按原顺序重新入栈（后出栈的先入栈）
+    for (int i = tempTop; i >= 0; i--) {
+        pushParking(parking, tempStack[i]);
+    }
+    
+    // 步骤4：如果便道有等待车辆，将队首车辆移入停车场
+    if (!isWaitingEmpty(waiting)) {
+        Car* waitCar = dequeueWaiting(waiting);
+        pushParking(parking, waitCar);
+        printf("便道车辆 %s 已进入停车场\n", waitCar->license);
+    }
+}
+
+// 显示停车场状态（从栈底到栈顶，即入口到出口方向）
+void showParking(ParkingStack* parking) {
+    if (isParkingEmpty(parking)) {
+        printf("停车场为空\n");
+        return;
+    }
+    printf("停车场状态（从入口到出口）：\n");
+    for (int i = 0; i <= parking->top; i++) {
+        printf("  车位%d：%s\n", i + 1, parking->data[i]->license);
+    }
+}
+
+// 显示便道状态（从队头到队尾）
+void showWaiting(WaitingQueue* waiting) {
+    if (isWaitingEmpty(waiting)) {
+        printf("便道无等待车辆\n");
+        return;
+    }
+    printf("便道排队状态（从前往后）：\n");
+    QueueNode* p = waiting->front;
+    int pos = 1;
+    while (p != NULL) {
+        printf("  第%d位：%s\n", pos++, p->car->license);
+        p = p->next;
+    }
+}
+
+// 释放所有动态内存
+void freeAll(ParkingStack* parking, WaitingQueue* waiting) {
+    // 释放停车场中的车辆
+    while (!isParkingEmpty(parking)) {
+        Car* car = popParking(parking);
+        free(car);
+    }
+    // 释放便道中的车辆和队列节点
+    while (!isWaitingEmpty(waiting)) {
+        Car* car = dequeueWaiting(waiting);
+        free(car);
+    }
+}
+
+// ========== 主函数 ==========
+int main() {
+    ParkingStack parking;
+    WaitingQueue waiting;
+    
+    initParking(&parking);
+    initWaiting(&waiting);
+    
+    int choice;
+    do {
+        printf("\n========== 停车场管理系统 ==========\n");
+        printf("1. 车辆到达\n");
+        printf("2. 车辆离开\n");
+        printf("3. 查看停车场状态\n");
+        printf("4. 查看便道状态\n");
+        printf("0. 退出系统\n");
+        printf("请选择操作：");
+        scanf("%d", &choice);
+        
+        switch (choice) {
+            case 1:
+                arrive(&parking, &waiting);
+                break;
+            case 2:
+                leave(&parking, &waiting);
+                break;
+            case 3:
+                showParking(&parking);
+                break;
+            case 4:
+                showWaiting(&waiting);
+                break;
+            case 0:
+                printf("正在退出系统，释放内存...\n");
+                freeAll(&parking, &waiting);
+                printf("已退出。\n");
+                break;
+            default:
+                printf("无效输入，请重新选择！\n");
+        }
+    } while (choice != 0);
+    
+    return 0;
+}
